@@ -1,21 +1,25 @@
 local LayoutHelpers = import("/lua/maui/layouthelpers.lua")
 local AddBeatFunction = import("/lua/ui/game/gamemain.lua").AddBeatFunction
 
+local options = UMT.Options.Mods["ColorCodedStrategicIcons"]
+
+local mexOverlayActive
+local engineerOverlayActive
+local sacuOverlayActive
+local factoriesOverlayActive
+local stationarySiloOverlayActive
+local mobileSiloOverlayActive
+
+options.mexOverlay:Bind(function(opt) mexOverlayActive = opt() end)
+options.engineersOverlay:Bind(function(opt) engineerOverlayActive = opt() end)
+options.sacuOverlay:Bind(function(opt) sacuOverlayActive = opt() end)
+options.factoriesOverlay:Bind(function(opt) factoriesOverlayActive = opt() end)
+options.stationarySiloOverlay:Bind(function(opt) stationarySiloOverlayActive = opt() end)
+options.mobileSiloOverlay:Bind(function(opt) mobileSiloOverlayActive = opt() end)
+
 local GetUnits = UMT.Units.GetFast
-local Options = import("options.lua")
-
--- local engineersOption = Options.engineersOption
--- local factoriesOption = Options.factoriesOption
--- local siloOption = Options.siloOption
--- local massExtractorsOption = Options.massExtractorsOption
-
--- local engineersOverlay = engineersOption()
--- local factoriesOverlay = factoriesOption()
--- local siloOverlay = siloOption()
--- local massExtractorsOverlay = massExtractorsOption()
 
 local overlays = UMT.Weak.Value {}
-
 local Overlay = UMT.Views.UnitOverlay
 
 local EngineerOverlay = Class(Overlay)
@@ -26,17 +30,18 @@ local EngineerOverlay = Class(Overlay)
         self.offsetY = 0
         self.isIdle = false
         if unit:IsInCategory("TECH1") then
-            self:SetTexture("/mods/ColorCodedStrategicIcons/overlays/t1_idle.dds", 0)
-        elseif unit:IsInCategory("TECH2") then
-            self:SetTexture("/mods/ColorCodedStrategicIcons/overlays/t2_idle.dds", 0)
-        elseif unit:IsInCategory("TECH3") and not unit:IsInCategory("SUBCOMMANDER") then
-            self:SetTexture("/mods/ColorCodedStrategicIcons/overlays/t3_idle.dds", 0)
-        elseif unit:IsInCategory("SUBCOMMANDER") then
-            self:SetTexture("/mods/ColorCodedStrategicIcons/overlays/sacu_idle.dds", 0)
+            self:SetTexture("/mods/ColorCodedStrategicIcons/overlays/engineer_t1_idle.dds", 0)
+        elseif unit:IsInCategory("TECH2") and unit:IsInCategory("FIELDENGINEER") then
+            self:SetTexture("/mods/ColorCodedStrategicIcons/overlays/sparky_idle.dds", 0)
+        elseif unit:IsInCategory("TECH2") and unit:IsInCategory("MOBILE") then
+            self:SetTexture("/mods/ColorCodedStrategicIcons/overlays/engineer_t2_idle.dds", 0)
+        elseif unit:IsInCategory("TECH3") and unit:IsInCategory("MOBILE") and not unit:IsInCategory("SUBCOMMANDER") then
+            self:SetTexture("/mods/ColorCodedStrategicIcons/overlays/engineer_t3_idle.dds", 0)
         end
     end,
 
     OnFrame = function(self, delta)
+        -- TODO: if not is destroyed?
         if self.isIdle then
             self:Update()
         else
@@ -45,8 +50,7 @@ local EngineerOverlay = Class(Overlay)
     end,
 
     UpdateState = function(self)
-        -- if self.unit:IsDead() or not engineersOverlay then
-        if self.unit:IsDead() then
+        if not engineerOverlayActive or self.unit:IsDead() then
             self:Destroy()
             return
         end
@@ -54,7 +58,37 @@ local EngineerOverlay = Class(Overlay)
     end
 }
 
-local StationaryFactoryOverlay = Class(Overlay)
+local SacuOverlay = Class(Overlay)
+{
+    __init = function(self, parent, unit)
+        Overlay.__init(self, parent, unit)
+        self.offsetX = 0
+        self.offsetY = 0
+        self.isIdle = false
+        if unit:IsInCategory("SUBCOMMANDER") then
+            self:SetTexture("/mods/ColorCodedStrategicIcons/overlays/sacu_idle.dds", 0)
+        end
+    end,
+
+    OnFrame = function(self, delta)
+        -- TODO: if not is destroyed
+        if self.isIdle then
+            self:Update()
+        else
+            self:Hide()
+        end
+    end,
+
+    UpdateState = function(self)
+        if not sacuOverlayActive or self.unit:IsDead() then
+            self:Destroy()
+            return
+        end
+        self.isIdle = self.unit:IsIdle()
+    end
+}
+
+local FactoryOverlay = Class(Overlay)
 {
     __init = function(self, parent, unit)
         Overlay.__init(self, parent, unit)
@@ -84,76 +118,42 @@ local StationaryFactoryOverlay = Class(Overlay)
     end,
 
     OnFrame = function(self, delta)
-        self:Update()
+        if not self.unit:IsDead() then
+            self:Update()
+        else
+            self:Hide()
+        end
     end,
 
     UpdateState = function(self)
-        -- if self.unit:IsDead() or not factoriesOverlay then
-        if self.unit:IsDead() then
+
+        if not factoriesOverlayActive or self.unit:IsDead() then -- if self.unit:IsBeingBuilt() -- attempt to call method `IsBeingBuilt' (a nil value) ???
             self:Destroy()
             return
         end
 
         if GetIsPaused { self.unit } or self.unit:IsIdle() then
+            LOG("1 - " ..
+                tostring(self.unit:IsRepeatQueue()) ..
+                " - " .. tostring(GetIsPaused { self.unit }) .. " - " .. tostring(self.unit:IsIdle()))
             self:SetFrame(0)
         elseif self.unit:GetFocus() and self.unit:GetFocus():IsInCategory("FACTORY") then
+            LOG("2 - ")
             self:SetFrame(1)
         elseif self.unit:IsRepeatQueue() and self.unit:GetFocus() and self.unit:GetFocus():IsInCategory("ENGINEER") then
+            LOG("3 - ")
             self:SetFrame(2)
         elseif self.unit:IsRepeatQueue() then
+            LOG("4 - ")
             self:SetFrame(3)
         else
-            self:Hide()
+            LOG("HIDE - ")
+            self:Destroy() -- Use Destroy, not Hide - it does nothing?
         end
     end
 }
 
-local MobileFactoryOverlay = Class(Overlay)
-{
-    __init = function(self, parent, unit)
-        Overlay.__init(self, parent, unit)
-        self.offsetX = 0
-        self.offsetY = 0
-        self.isIdle = false
-
-        local tempOverlays = {}
-
-        table.insert(tempOverlays, "/mods/ColorCodedStrategicIcons/overlays/fact_paused.dds")
-        table.insert(tempOverlays, "/mods/ColorCodedStrategicIcons/overlays/fact_upgrading.dds")
-        table.insert(tempOverlays, "/mods/ColorCodedStrategicIcons/overlays/fact_eng.dds")
-        table.insert(tempOverlays, "/mods/ColorCodedStrategicIcons/overlays/fact_repeat.dds")
-
-        self:SetTexture(tempOverlays)
-
-        LayoutHelpers.SetDimensions(self, 32, 32)
-    end,
-
-    OnFrame = function(self, delta)
-        self:Update()
-    end,
-
-    UpdateState = function(self)
-        -- if self.unit:IsDead() or not factoriesOverlay then
-        if self.unit:IsDead() then
-            self:Destroy()
-            return
-        end
-
-        if GetIsPaused { self.unit } or self.unit:IsIdle() then
-            self:SetFrame(0)
-        elseif self.unit:GetFocus() and self.unit:GetFocus():IsInCategory("FACTORY") then
-            self:SetFrame(1)
-        elseif self.unit:IsRepeatQueue() and self.unit:GetFocus() and self.unit:GetFocus():IsInCategory("ENGINEER") then
-            self:SetFrame(2)
-        elseif self.unit:IsRepeatQueue() then
-            self:SetFrame(3)
-        else
-            self:Hide()
-        end
-    end
-}
-
-local MissileSiloOverlay = Class(Overlay)
+local StationarySiloOverlay = Class(Overlay)
 {
     __init = function(self, parent, unit)
         Overlay.__init(self, parent, unit)
@@ -167,8 +167,10 @@ local MissileSiloOverlay = Class(Overlay)
             "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_2.dds",
             "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_3.dds",
             "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_4.dds",
-            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_plus.dds", --TODO
-            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_plus.dds", --TODO
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_5.dds",
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_6.dds",
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_7.dds",
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_8.dds",
             "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_plus.dds",
         })
     end,
@@ -178,8 +180,7 @@ local MissileSiloOverlay = Class(Overlay)
     end,
 
     UpdateState = function(self)
-        -- if self.unit:IsDead() or not siloOverlay then
-        if self.unit:IsDead() then
+        if not stationarySiloOverlayActive or self.unit:IsDead() then
             self:Destroy()
             return
         end
@@ -200,8 +201,70 @@ local MissileSiloOverlay = Class(Overlay)
             self:SetFrame(5)
         elseif self.siloStorageCount == 6 then
             self:SetFrame(6)
-        elseif self.siloStorageCount > 6 then
+        elseif self.siloStorageCount == 7 then
             self:SetFrame(7)
+        elseif self.siloStorageCount == 8 then
+            self:SetFrame(8)
+        elseif self.siloStorageCount > 8 then
+            self:SetFrame(9)
+        end
+    end
+}
+
+local MobileSiloOverlay = Class(Overlay)
+{
+    __init = function(self, parent, unit)
+        Overlay.__init(self, parent, unit)
+        self.offsetX = 0
+        self.offsetY = 0
+        self.siloStorageCount = 0
+
+        self:SetTexture({
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_0.dds",
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_1.dds",
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_2.dds",
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_3.dds",
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_4.dds",
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_5.dds",
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_6.dds",
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_7.dds",
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_8.dds",
+            "/mods/ColorCodedStrategicIcons/overlays/missile_loaded_plus.dds",
+        })
+    end,
+
+    OnFrame = function(self, delta)
+        self:Update()
+    end,
+
+    UpdateState = function(self)
+        if not mobileSiloOverlayActive or self.unit:IsDead() then
+            self:Destroy()
+            return
+        end
+        local mi = self.unit:GetMissileInfo()
+        self.siloStorageCount = (mi.nukeSiloStorageCount or 0) + (mi.tacticalSiloStorageCount or 0)
+
+        if self.siloStorageCount == 0 then
+            self:SetFrame(0)
+        elseif self.siloStorageCount == 1 then
+            self:SetFrame(1)
+        elseif self.siloStorageCount == 2 then
+            self:SetFrame(2)
+        elseif self.siloStorageCount == 3 then
+            self:SetFrame(3)
+        elseif self.siloStorageCount == 4 then
+            self:SetFrame(4)
+        elseif self.siloStorageCount == 5 then
+            self:SetFrame(5)
+        elseif self.siloStorageCount == 6 then
+            self:SetFrame(6)
+        elseif self.siloStorageCount == 7 then
+            self:SetFrame(7)
+        elseif self.siloStorageCount == 8 then
+            self:SetFrame(8)
+        elseif self.siloStorageCount > 8 then
+            self:SetFrame(9)
         end
     end
 }
@@ -230,8 +293,7 @@ local AntiNukeSiloOverlay = Class(Overlay)
     end,
 
     UpdateState = function(self)
-        -- if self.unit:IsDead() or not siloOverlay then
-        if self.unit:IsDead() then
+        if not stationarySiloOverlayActive or self.unit:IsDead() then
             self:Destroy()
             return
         end
@@ -248,8 +310,12 @@ local AntiNukeSiloOverlay = Class(Overlay)
             self:SetFrame(3)
         elseif self.siloStorageCount == 4 then
             self:SetFrame(4)
-        elseif self.siloStorageCount > 4 then
+        elseif self.siloStorageCount == 5 then
             self:SetFrame(5)
+        elseif self.siloStorageCount == 6 then
+            self:SetFrame(6)
+        elseif self.siloStorageCount > 7 then
+            self:SetFrame(7)
         end
     end
 }
@@ -266,7 +332,7 @@ local MexOverlay = Class(Overlay)
     end,
 
     OnFrame = function(self, delta)
-        if self.isUpgrading then
+        if not self.unit:IsDead() and self.isUpgrading then
             self:Update()
         else
             self:Hide()
@@ -274,8 +340,7 @@ local MexOverlay = Class(Overlay)
     end,
 
     UpdateState = function(self)
-        -- if self.unit:IsDead() or not massExtractorsOverlay then
-        if self.unit:IsDead() then
+        if not mexOverlayActive or self.unit:IsDead() then
             self:Destroy()
             return
         end
@@ -297,14 +362,19 @@ local function CreateUnitOverlays()
     local worldView = import("/lua/ui/game/worldview.lua").viewLeft
     for id, unit in allunits do
         if IsDestroyed(overlays[id]) and not unit:IsDead() then
-            if unit:IsInCategory("ENGINEER") then
+            if unit:IsInCategory("SUBCOMMANDER") then
+                overlays[id] = SacuOverlay(worldView, unit)
+            elseif unit:IsInCategory("ENGINEER") then
                 overlays[id] = EngineerOverlay(worldView, unit)
             elseif unit:IsInCategory("FACTORY") and not unit:IsInCategory("EXTERNALFACTORYUNIT") and
                 not unit:IsInCategory("EXPERIMENTAL") and not unit:IsInCategory("CRABEGG") then
-                overlays[id] = StationaryFactoryOverlay(worldView, unit)
+                overlays[id] = FactoryOverlay(worldView, unit)
+            elseif unit:IsInCategory("SILO") and unit:IsInCategory("STRUCTURE") and
+                (unit:IsInCategory("TACTICALMISSILEPLATFORM") or unit:IsInCategory("NUKE")) then
+                overlays[id] = StationarySiloOverlay(worldView, unit)
             elseif unit:IsInCategory("SILO") and
                 (unit:IsInCategory("TACTICALMISSILEPLATFORM") or unit:IsInCategory("NUKE")) then
-                overlays[id] = MissileSiloOverlay(worldView, unit)
+                overlays[id] = MobileSiloOverlay(worldView, unit)
             elseif unit:IsInCategory("SILO") and unit:IsInCategory("ANTIMISSILE") and
                 unit:IsInCategory("TECH3") then
                 overlays[id] = AntiNukeSiloOverlay(worldView, unit)
